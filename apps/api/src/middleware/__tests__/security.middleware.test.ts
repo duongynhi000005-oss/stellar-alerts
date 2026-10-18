@@ -1,10 +1,22 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { registerSecurityHeaders } from '../security.middleware';
 
 async function buildTestApp() {
+  const allowedOrigins = new Set(['http://localhost:3000', 'https://app.stellar-alerts.io']);
   const app = Fastify({ logger: false });
   await registerSecurityHeaders(app);
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        cb(null, true);
+        return;
+      }
+      cb(null, false);
+    },
+    credentials: true,
+  });
 
   app.get('/ping', async () => ({ pong: true }));
   app.get('/custom-csp', async (_req, reply) => {
@@ -17,7 +29,7 @@ async function buildTestApp() {
   return app;
 }
 
-describe('Security headers middleware', () => {
+describe('Security headers middleware & Strict CORS Origin Controls', () => {
   let app: ReturnType<typeof Fastify>;
 
   beforeAll(async () => {
@@ -77,5 +89,30 @@ describe('Security headers middleware', () => {
     expect(res.statusCode).toBe(404);
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['x-frame-options']).toBe('DENY');
+  });
+
+  it('allows CORS preflight from whitelisted APP_URL origin', async () => {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/ping',
+      headers: {
+        origin: 'https://app.stellar-alerts.io',
+        'access-control-request-method': 'GET',
+      },
+    });
+    expect(res.headers['access-control-allow-origin']).toBe('https://app.stellar-alerts.io');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it('rejects CORS preflight from unauthorized origin', async () => {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/ping',
+      headers: {
+        origin: 'https://evil-attacker.example.com',
+        'access-control-request-method': 'GET',
+      },
+    });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 });

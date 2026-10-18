@@ -30,6 +30,8 @@ import { exportsRoutes } from './modules/exports/exports.routes';
 import { simulationRoutes } from './modules/simulation/simulation.routes';
 import { openApiOptions } from './openapi.config';
 import { loggerOptions } from './lib/logger';
+import { env } from './config/env';
+import metricsPlugin from './plugins/metrics';
 
 import { checkRedisReadiness, getRedisStatus } from './lib/redis';
 import { dbFailover } from './lib/db-failover';
@@ -37,6 +39,15 @@ import degradedModePlugin from './plugins/degraded-mode';
 import { AppError } from './lib/errors';
 
 export { openApiComponentSchemas, openApiOptions } from './openapi.config';
+
+export function resolveAllowedOrigins(raw?: string): string[] {
+  const source = raw ?? process.env.APP_URL ?? env.CSRF_ALLOWED_ORIGINS ?? 'http://localhost:3000';
+  const origins = source
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  return origins.length > 0 ? origins : ['http://localhost:3000'];
+}
 
 export const buildApp = async () => {
   // Issue #19: Correlation IDs — read x-request-id header or generate a UUID
@@ -54,8 +65,18 @@ export const buildApp = async () => {
     },
   });
 
+  await registerSecurityHeaders(app);
+
+  const allowedOrigins = new Set(resolveAllowedOrigins());
   await app.register(cors, {
-    origin: true // Allow all origins for dev, or specify 'http://localhost:3000'
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        cb(null, true);
+        return;
+      }
+      cb(null, false);
+    },
+    credentials: true,
   });
 
   await app.register(rateLimit, {
