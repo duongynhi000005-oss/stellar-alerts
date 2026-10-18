@@ -71,3 +71,26 @@ export async function persistDeadLetter(input: DeadLetterCapture): Promise<strin
     return null;
   }
 }
+
+export async function replayDeadLetterJob(
+  deadLetterId: string,
+  enqueueFn: (payload: unknown) => Promise<void>,
+): Promise<boolean> {
+  const record = await prisma.deadLetter.findUnique({
+    where: { id: deadLetterId },
+  });
+  if (!record || record.status !== 'pending') {
+    return false;
+  }
+
+  await enqueueFn(record.payload);
+  await prisma.deadLetter.update({
+    where: { id: deadLetterId },
+    data: {
+      status: 'replayed',
+      replayedAt: new Date(),
+    },
+  });
+  deadLetterLog.info({ id: deadLetterId, channel: record.channel }, 'Replayed dead-letter job');
+  return true;
+}
