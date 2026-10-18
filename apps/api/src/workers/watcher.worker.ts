@@ -612,6 +612,7 @@ export type StartHorizonSSEStreamOptions = {
   maxReconnectAttempts?: number;
   maxReconnectDelayMs?: number;
   maxQueuedMessages?: number;
+  heartbeatTimeoutMs?: number;
 };
 
 export const streamMetrics = {
@@ -644,6 +645,7 @@ export async function startHorizonSSEStream(
     const reconnectDelay = options.reconnectDelayMs ?? 1000;
     const maxReconnectDelay = options.maxReconnectDelayMs ?? reconnectDelay * 30;
     const maxQueuedMessages = options.maxQueuedMessages ?? 50;
+    const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 60000;
 
     // Bounded backpressure: process messages one at a time in arrival order so a
     // slow consumer (e.g. a slow DB write) never lets concurrent handler calls pile
@@ -699,9 +701,10 @@ export async function startHorizonSSEStream(
       if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
       heartbeatTimeout = setTimeout(() => {
         streamMetrics.heartbeatTimeouts++;
+        streamMetrics.reconnects++;
         log.warn(`[WatcherStream] ⚠️ Heartbeat timeout for ${wallet.publicKey.substring(0, 8)}... Reconnecting...`);
         connect();
-      }, 60000);
+      }, heartbeatTimeoutMs);
     };
 
     const connect = async () => {
