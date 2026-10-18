@@ -167,3 +167,59 @@ export class EmailService {
 }
 
 export const emailService = new EmailService();
+
+export function buildStellarExpertTxUrl(
+  txHash: string,
+  network: 'testnet' | 'public' = 'testnet',
+): string {
+  return `https://stellar.expert/explorer/${network}/tx/${encodeURIComponent(txHash)}`;
+}
+
+export interface EmailAlertDispatchInput {
+  recipientEmail: string;
+  emailEnabled?: boolean;
+  paymentId: string;
+  txHash: string;
+  amount: string;
+  asset: string;
+  assetIssuer?: string | null;
+  fromAddress: string;
+  receivedAt: string;
+  apiKey?: string;
+  fromEmail?: string;
+}
+
+export async function dispatchEmailNotification(
+  input: EmailAlertDispatchInput,
+): Promise<{ sent: boolean; id?: string; skipped?: boolean; error?: string }> {
+  if (!input.emailEnabled) {
+    return { sent: false, skipped: true };
+  }
+
+  const service = input.apiKey || input.fromEmail
+    ? new EmailService(input.apiKey, input.fromEmail)
+    : emailService;
+
+  try {
+    const result = await service.sendPaymentReceipt(
+      { recipientEmail: input.recipientEmail, emailEnabled: input.emailEnabled },
+      {
+        paymentId: input.paymentId,
+        txHash: input.txHash,
+        amount: input.amount,
+        asset: input.asset,
+        assetIssuer: input.assetIssuer,
+        fromAddress: input.fromAddress,
+        receivedAt: input.receivedAt,
+      },
+    );
+    if (result.skipped) {
+      return { sent: false, skipped: true };
+    }
+    return { sent: true, id: result.id };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[EmailService] Failed to dispatch email notification for ${input.paymentId}: ${message}`);
+    return { sent: false, error: message };
+  }
+}
