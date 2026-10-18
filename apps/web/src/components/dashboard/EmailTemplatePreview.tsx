@@ -162,11 +162,53 @@ export function buildEmailTemplateHtml(config: EmailTemplateConfig): string {
 </html>`;
 }
 
+export interface SavedEmailTemplateVariables {
+  brandName: string;
+  logoUrl: string;
+  primaryColor: string;
+  accentColor: string;
+  footerText: string;
+  emailHtml: string;
+}
+
+/**
+ * Serializes the merchant's customized email template variables into a clean
+ * preference payload suitable for saving to the user preference schema.
+ */
+export function serializeEmailTemplateVariables(
+  config: EmailTemplateConfig,
+): SavedEmailTemplateVariables {
+  const normalized: EmailTemplateConfig = {
+    ...config,
+    brandName: config.brandName.trim() || DEFAULT_EMAIL_TEMPLATE.brandName,
+    logoUrl: config.logoUrl.trim(),
+    primaryColor: normalizeHexColor(config.primaryColor),
+    accentColor: normalizeHexColor(
+      config.accentColor,
+      normalizeHexColor(config.primaryColor),
+    ),
+    footerText: config.footerText.trim() || DEFAULT_EMAIL_TEMPLATE.footerText,
+  };
+
+  return {
+    brandName: normalized.brandName,
+    logoUrl: normalized.logoUrl,
+    primaryColor: normalized.primaryColor,
+    accentColor: normalized.accentColor,
+    footerText: normalized.footerText,
+    emailHtml: buildEmailTemplateHtml(normalized),
+  };
+}
+
 interface EmailTemplatePreviewProps {
   /** Persist the finalized template variables to the user preference schema. */
   onSaveTemplate?: (template: EmailTemplateConfig) => void | Promise<void>;
   /** Optional initial template to hydrate the editor with (e.g. saved prefs). */
   initialTemplate?: Partial<EmailTemplateConfig>;
+  /** When false, hides the preview modal when rendered as a dialog. */
+  isOpen?: boolean;
+  /** Optional callback invoked when the preview modal is dismissed. */
+  onClose?: () => void;
 }
 
 const FIELD_LABEL_CLASS =
@@ -177,6 +219,8 @@ const FIELD_INPUT_CLASS =
 export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
   onSaveTemplate,
   initialTemplate,
+  isOpen = true,
+  onClose,
 }) => {
   const [template, setTemplate] = useState<EmailTemplateConfig>({
     ...DEFAULT_EMAIL_TEMPLATE,
@@ -187,8 +231,17 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
 
   const previewHtml = useMemo(() => buildEmailTemplateHtml(template), [template]);
 
+  if (!isOpen) {
+    return null;
+  }
+
   const updateField = <K extends keyof EmailTemplateConfig>(field: K, value: EmailTemplateConfig[K]) => {
     setTemplate((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleReset = () => {
+    setTemplate({ ...DEFAULT_EMAIL_TEMPLATE });
+    setSaved(false);
   };
 
   const handleSave = async (event: React.FormEvent) => {
@@ -209,7 +262,12 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
   };
 
   return (
-    <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-xl shadow-xl mb-8">
+    <div
+      role={onClose ? 'dialog' : undefined}
+      aria-modal={onClose ? true : undefined}
+      aria-label="Email Receipt Template Preview"
+      className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-xl shadow-xl mb-8"
+    >
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-6">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -377,6 +435,22 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
               >
                 Copy HTML
               </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-sm font-semibold text-slate-200 transition-colors cursor-pointer"
+              >
+                Reset Defaults
+              </button>
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-sm font-semibold text-slate-400 transition-colors cursor-pointer"
+                >
+                  Close Preview
+                </button>
+              )}
               {saved && (
                 <span
                   role="status"

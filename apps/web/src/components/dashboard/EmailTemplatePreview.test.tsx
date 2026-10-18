@@ -6,6 +6,7 @@ import {
   DEFAULT_EMAIL_TEMPLATE,
   buildEmailTemplateHtml,
   normalizeHexColor,
+  serializeEmailTemplateVariables,
 } from './EmailTemplatePreview';
 
 describe('EmailTemplatePreview', () => {
@@ -47,6 +48,52 @@ describe('EmailTemplatePreview', () => {
     expect(normalizeHexColor('zzz')).toBe('#0ea5e9');
     expect(normalizeHexColor('#f80')).toBe('#ff8800');
     expect(normalizeHexColor('  #0EA5E9  ')).toBe('#0ea5e9');
+  });
+
+  it('serializes custom template variables for user preference storage', () => {
+    const serialized = serializeEmailTemplateVariables({
+      ...DEFAULT_EMAIL_TEMPLATE,
+      brandName: '  LumenPay  ',
+      logoUrl: ' https://cdn.example.com/lumen.svg ',
+      primaryColor: '#369',
+      accentColor: '#f80',
+    });
+
+    expect(serialized.brandName).toBe('LumenPay');
+    expect(serialized.logoUrl).toBe('https://cdn.example.com/lumen.svg');
+    expect(serialized.primaryColor).toBe('#336699');
+    expect(serialized.accentColor).toBe('#ff8800');
+    expect(serialized.emailHtml).toContain('LumenPay');
+    expect(serialized.emailHtml).toContain('#336699');
+  });
+
+  it('updates live iframe preview in real-time and resets to defaults', () => {
+    render(<EmailTemplatePreview />);
+
+    fireEvent.change(screen.getByLabelText(/Brand Name/i), {
+      target: { value: 'Orbit Commerce' },
+    });
+    fireEvent.change(screen.getByLabelText(/Brand Logo URL/i), {
+      target: { value: 'https://cdn.example.com/orbit.png' },
+    });
+
+    const iframe = screen.getByTestId('email-preview-frame');
+    expect(iframe.getAttribute('srcDoc')).toContain('Orbit Commerce');
+    expect(iframe.getAttribute('srcDoc')).toContain('https://cdn.example.com/orbit.png');
+
+    fireEvent.click(screen.getByRole('button', { name: /Reset Defaults/i }));
+    expect(screen.getByLabelText(/Brand Name/i)).toHaveValue(DEFAULT_EMAIL_TEMPLATE.brandName);
+  });
+
+  it('supports modal dialog open/close behavior', () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<EmailTemplatePreview isOpen={false} onClose={onClose} />);
+    expect(screen.queryByTestId('email-preview-frame')).not.toBeInTheDocument();
+
+    rerender(<EmailTemplatePreview isOpen={true} onClose={onClose} />);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Close Preview/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('invokes onSaveTemplate with the customized template variables', async () => {
