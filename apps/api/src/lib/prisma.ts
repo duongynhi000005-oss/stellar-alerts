@@ -70,6 +70,36 @@ export async function switchDatabaseUrl(newUrl: string): Promise<void> {
   }
 }
 
-export async function connectWithRetry() {
-  await prisma.$connect();
+export async function connectWithRetry(
+  maxAttempts = 5,
+  baseDelayMs = 1000,
+  sleepFn: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await prisma.$connect();
+      if (attempt > 1) {
+        console.log(`[Prisma] Connected to PostgreSQL on attempt ${attempt}/${maxAttempts}`);
+      }
+      return;
+    } catch (error: unknown) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt === maxAttempts) {
+        console.error(
+          `[Prisma] Fatal: failed to connect to PostgreSQL after ${maxAttempts} attempts: ${message}`,
+        );
+        throw new Error(
+          `Failed to connect to PostgreSQL after ${maxAttempts} attempts: ${message}`,
+        );
+      }
+      const delayMs = baseDelayMs * 2 ** (attempt - 1);
+      console.warn(
+        `[Prisma] Connection attempt ${attempt}/${maxAttempts} failed (${message}). Retrying in ${delayMs}ms...`,
+      );
+      await sleepFn(delayMs);
+    }
+  }
+  throw lastError;
 }
