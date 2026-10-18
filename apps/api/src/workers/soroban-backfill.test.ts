@@ -219,4 +219,70 @@ describe("Soroban Backfill Worker", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it("should paginate multiple ledger batches and deduplicate repeated events across batches", async () => {
+    const contractId = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+    const batch1 = [
+      { contractId, topic: ["transfer"], value: { from: "GAAA", to: "GBBB", amount: "500" }, ledger: 10 },
+    ];
+    const batch2 = [
+      { contractId, topic: ["transfer"], value: { from: "GAAA", to: "GBBB", amount: "500" }, ledger: 10 },
+      { contractId, topic: ["transfer"], value: { from: "GAAA", to: "GCCC", amount: "900" }, ledger: 20 },
+    ];
+
+    const mockGenerator = async function* () {
+      yield batch1;
+      yield batch2;
+    };
+
+    vi.mocked(getSorobanLatestLedger).mockResolvedValueOnce(250);
+    vi.mocked(fetchContractEventsInRange).mockReturnValueOnce(mockGenerator());
+    vi.mocked(parseSorobanTransferEvent)
+      .mockReturnValueOnce({
+        contractId,
+        from: "GAAA",
+        to: "GBBB",
+        amount: "500",
+        topic: "transfer",
+        ledgerSeq: 10,
+      })
+      .mockReturnValueOnce({
+        contractId,
+        from: "GAAA",
+        to: "GBBB",
+        amount: "500",
+        topic: "transfer",
+        ledgerSeq: 10,
+      })
+      .mockReturnValueOnce({
+        contractId,
+        from: "GAAA",
+        to: "GCCC",
+        amount: "900",
+        topic: "transfer",
+        ledgerSeq: 20,
+      });
+    vi.mocked(prisma.sorobanEventSnapshot.create).mockResolvedValue({
+      id: "snap-batch",
+      contractId,
+      from: "GAAA",
+      to: "GBBB",
+      amount: "500",
+      ledgerSeq: 10,
+      eventType: "transfer",
+      txHash: null,
+      paid: false,
+      createdAt: new Date(),
+    });
+
+    const stats = await runSorobanBackfill(contractId, 1);
+
+    expect(stats).toEqual({
+      totalEventsProcessed: 3,
+      eventsStored: 2,
+      eventsDuplicated: 1,
+      errorCount: 0,
+    });
+    expect(prisma.sorobanEventSnapshot.create).toHaveBeenCalledTimes(2);
+  });
 });
