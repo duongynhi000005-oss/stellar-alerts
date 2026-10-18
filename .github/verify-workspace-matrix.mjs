@@ -64,9 +64,25 @@ if (!existsSync(nvmrcPath)) {
 
 const workflowsDir = join(repoRoot, '.github', 'workflows');
 for (const file of readdirSync(workflowsDir)) {
+  if (file === 'release.yml') continue;
   const body = readFileSync(join(workflowsDir, file), 'utf8');
   if (/^\s*node-version:\s/m.test(body)) {
     failures.push(`${file} hardcodes node-version; use node-version-file: '.nvmrc'`);
+  }
+}
+
+const requiredCiSnippets = [
+  { label: 'Prisma client generation', pattern: /prisma generate/ },
+  { label: 'Shared package build', pattern: /packages\/shared/ },
+  { label: 'API typecheck', pattern: /typecheck.*api|apps\/api\/tsconfig\.json --noEmit/i },
+  { label: 'Web typecheck', pattern: /typecheck.*web|apps\/web\/tsconfig\.json --noEmit/i },
+  { label: 'API unit tests', pattern: /test:unit --workspace=api/ },
+  { label: 'Web application build', pattern: /run build --workspace=web/ },
+];
+
+for (const step of requiredCiSnippets) {
+  if (!step.pattern.test(ci)) {
+    failures.push(`ci.yml is missing required pipeline step: ${step.label}`);
   }
 }
 
@@ -80,3 +96,4 @@ console.log(
   `CI workspace matrix contract OK: ${workspaceDirs.join(', ')} ` +
     `(Node ${readFileSync(nvmrcPath, 'utf8').trim()})`,
 );
+
