@@ -77,4 +77,37 @@ describe('Correlation middleware (X-Request-ID)', () => {
     ]);
     expect(res1.headers['x-request-id']).not.toBe(res2.headers['x-request-id']);
   });
+
+  it('binds requestId into structured Pino log output for incoming requests', async () => {
+    const lines: string[] = [];
+    const loggedApp = Fastify({
+      logger: {
+        level: 'info',
+        stream: {
+          write: (msg: string) => {
+            lines.push(msg);
+          },
+        },
+      },
+      requestIdLogLabel: 'requestId',
+      requestIdHeader: 'x-request-id',
+    });
+    await registerCorrelation(loggedApp);
+    loggedApp.get('/logged', async (req) => {
+      req.log.info('handling /logged');
+      return { ok: true };
+    });
+    await loggedApp.ready();
+
+    const res = await loggedApp.inject({
+      method: 'GET',
+      url: '/logged',
+      headers: { 'x-request-id': 'req-corr-567' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-request-id']).toBe('req-corr-567');
+    expect(lines.some((line) => line.includes('"requestId":"req-corr-567"'))).toBe(true);
+    await loggedApp.close();
+  });
 });

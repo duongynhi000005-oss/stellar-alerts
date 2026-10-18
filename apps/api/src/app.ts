@@ -30,6 +30,8 @@ import { exportsRoutes } from './modules/exports/exports.routes';
 import { simulationRoutes } from './modules/simulation/simulation.routes';
 import { openApiOptions } from './openapi.config';
 import { loggerOptions } from './lib/logger';
+import { env } from './config/env';
+import metricsPlugin from './plugins/metrics';
 
 import { checkRedisReadiness, getRedisStatus } from './lib/redis';
 import { dbFailover } from './lib/db-failover';
@@ -39,7 +41,7 @@ import { AppError } from './lib/errors';
 export { openApiComponentSchemas, openApiOptions } from './openapi.config';
 
 export const buildApp = async () => {
-  // Issue #19: Correlation IDs — read x-request-id header or generate a UUID
+  // Issue #19 / #567: Correlation IDs — read x-request-id header or generate a UUID
   const app = Fastify({
     logger: loggerOptions,
     requestIdLogLabel: 'requestId',
@@ -53,6 +55,8 @@ export const buildApp = async () => {
       return randomUUID();
     },
   });
+
+  await registerCorrelation(app);
 
   await app.register(cors, {
     origin: true // Allow all origins for dev, or specify 'http://localhost:3000'
