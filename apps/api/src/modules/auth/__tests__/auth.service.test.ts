@@ -80,6 +80,16 @@ describe('AuthService', () => {
         'Invalid or expired token'
       );
     });
+
+    it('should reject a magic token that has already been consumed', async () => {
+      const email = 'single-use@stellar-alerts.org';
+      const magicToken = await authService.requestMagicLink(email);
+      const mockUser = { id: 'user_cuid_456', email, createdAt: new Date() };
+      (prisma.user.upsert as any).mockResolvedValue(mockUser);
+
+      await authService.verifyMagicLink(magicToken);
+      await expect(authService.verifyMagicLink(magicToken)).rejects.toThrow();
+    });
   });
 
   describe('getMe', () => {
