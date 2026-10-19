@@ -3,6 +3,21 @@
 import React, { useMemo, useState } from 'react';
 
 /**
+ * Supported placeholder tokens that merchants can embed inside custom subject,
+ * body, or footer strings. Resolved in real time via `interpolateEmailTemplateTokens`.
+ */
+export const EMAIL_TEMPLATE_PLACEHOLDER_TOKENS = [
+  '{{brandName}}',
+  '{{amount}}',
+  '{{asset}}',
+  '{{fromAddress}}',
+  '{{txHash}}',
+] as const;
+
+export type EmailTemplatePlaceholderToken =
+  (typeof EMAIL_TEMPLATE_PLACEHOLDER_TOKENS)[number];
+
+/**
  * Email template variables a merchant can customize before their receipt
  * emails are generated. The resulting `emailHtml` (see
  * `buildEmailTemplateHtml`) is what gets baked into each payment receipt.
@@ -16,8 +31,12 @@ export interface EmailTemplateConfig {
   primaryColor: string;
   /** Secondary accent color used for highlighted details (hex). */
   accentColor: string;
-  /** Small print rendered in the email footer. */
+  /** Small print rendered in the email footer (supports placeholder tokens). */
   footerText: string;
+  /** Custom email subject line template supporting placeholder tokens. */
+  subjectTemplate?: string;
+  /** Custom email body message template supporting placeholder tokens. */
+  bodyTemplate?: string;
   /** Sample transaction values rendered in the live preview. */
   amount: string;
   asset: string;
@@ -25,12 +44,36 @@ export interface EmailTemplateConfig {
   txHash: string;
 }
 
+/**
+ * Structured user preference schema payload persisted when saving custom HTML
+ * email template variables.
+ */
+export interface UserEmailTemplatePreference {
+  schemaVersion: 1;
+  updatedAt: string;
+  emailTemplate: {
+    brandName: string;
+    logoUrl: string;
+    primaryColor: string;
+    accentColor: string;
+    footerText: string;
+    subjectTemplate: string;
+    bodyTemplate: string;
+  };
+}
+
+export const USER_EMAIL_TEMPLATE_PREF_KEY =
+  'stellar_alerts_user_email_template_prefs';
+
 export const DEFAULT_EMAIL_TEMPLATE: EmailTemplateConfig = {
   brandName: 'StellarAlerts',
   logoUrl: '',
   primaryColor: '#0ea5e9',
   accentColor: '#7c3aed',
-  footerText: 'You received this receipt because you monitor incoming Stellar payments with StellarAlerts.',
+  footerText:
+    'You received this receipt because you monitor incoming Stellar payments with StellarAlerts.',
+  subjectTemplate: 'Payment Receipt — {{amount}} {{asset}} for {{brandName}}',
+  bodyTemplate: 'You received a new payment on the Stellar network.',
   amount: '250.0000000',
   asset: 'USDC',
   fromAddress: 'GCKF65D4G57T7754Y62F76J5W7P3R2A1B0C9D8E7F6G5H4I3J2K1L0M',
@@ -65,6 +108,74 @@ function escapeHtml(value: string): string {
 }
 
 /**
+ * Replaces `{{brandName}}`, `{{amount}}`, `{{asset}}`, `{{fromAddress}}`, and
+ * `{{txHash}}` placeholder tokens with values from `config`.
+ */
+export function interpolateEmailTemplateTokens(
+  templateText: string,
+  config: EmailTemplateConfig,
+  options: { escapeValues?: boolean } = {}
+): string {
+  const shouldEscape = options.escapeValues ?? false;
+  const wrap = (val: string) => (shouldEscape ? escapeHtml(val) : val);
+
+  const replacements: Record<EmailTemplatePlaceholderToken, string> = {
+    '{{brandName}}': wrap(config.brandName.trim() || 'StellarAlerts'),
+    '{{amount}}': wrap(config.amount.trim()),
+    '{{asset}}': wrap(config.asset.trim()),
+    '{{fromAddress}}': wrap(config.fromAddress.trim()),
+    '{{txHash}}': wrap(config.txHash.trim()),
+  };
+
+  return templateText.replace(
+    /\{\{(brandName|amount|asset|fromAddress|txHash)\}\}/g,
+    (match) => replacements[match as EmailTemplatePlaceholderToken] ?? match
+  );
+}
+
+/**
+ * Serializes and persists custom HTML template variables to the user preference schema.
+ */
+export function saveEmailTemplatePreferences(
+  config: EmailTemplateConfig,
+  storage?: Pick<Storage, 'setItem'>
+): UserEmailTemplatePreference {
+  const primary = normalizeHexColor(config.primaryColor);
+  const accent = normalizeHexColor(config.accentColor, primary);
+  const payload: UserEmailTemplatePreference = {
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    emailTemplate: {
+      brandName: config.brandName.trim() || DEFAULT_EMAIL_TEMPLATE.brandName,
+      logoUrl: config.logoUrl.trim(),
+      primaryColor: primary,
+      accentColor: accent,
+      footerText: config.footerText.trim(),
+      subjectTemplate:
+        config.subjectTemplate?.trim() ||
+        DEFAULT_EMAIL_TEMPLATE.subjectTemplate ||
+        'Payment Receipt — {{brandName}}',
+      bodyTemplate:
+        config.bodyTemplate?.trim() ||
+        DEFAULT_EMAIL_TEMPLATE.bodyTemplate ||
+        'You received a new payment on the Stellar network.',
+    },
+  };
+
+  const targetStorage =
+    storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
+  if (targetStorage) {
+    try {
+      targetStorage.setItem(USER_EMAIL_TEMPLATE_PREF_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota / security errors in restricted environments
+    }
+  }
+
+  return payload;
+}
+
+/**
  * Builds the full HTML email document (inline-styled for email clients) from
  * the merchant's custom template variables. This is what the dashboard preview
  * renders live as the user edits their brand logo and colors.
@@ -74,7 +185,19 @@ export function buildEmailTemplateHtml(config: EmailTemplateConfig): string {
   const primary = normalizeHexColor(config.primaryColor);
   const accent = normalizeHexColor(config.accentColor, primary);
   const logoUrl = config.logoUrl.trim();
-  const footerText = escapeHtml(config.footerText.trim());
+  const rawFooter = interpolateEmailTemplateTokens(config.footerText.trim(), config);
+  const footerText = escapeHtml(rawFooter);
+  const rawBody = interpolateEmailTemplateTokens(
+    (config.bodyTemplate ?? DEFAULT_EMAIL_TEMPLATE.bodyTemplate ?? '').trim() ||
+      'You received a new payment on the Stellar network.',
+    config
+  );
+  const bodyText = escapeHtml(rawBody);
+  const rawSubject = interpolateEmailTemplateTokens(
+    (config.subjectTemplate ?? '').trim() || `Payment Receipt — ${config.brandName.trim() || 'StellarAlerts'}`,
+    config
+  );
+  const subjectText = escapeHtml(rawSubject);
   const amount = escapeHtml(config.amount.trim());
   const asset = escapeHtml(config.asset.trim());
   const fromAddress = escapeHtml(config.fromAddress.trim());
@@ -91,7 +214,7 @@ export function buildEmailTemplateHtml(config: EmailTemplateConfig): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Payment Receipt — ${brandName}</title>
+    <title>${subjectText}</title>
   </head>
   <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:32px 12px;">
@@ -110,7 +233,7 @@ export function buildEmailTemplateHtml(config: EmailTemplateConfig): string {
               <td style="padding:32px;">
                 <div style="font-size:18px;color:#0f172a;font-weight:700;margin-bottom:20px;">Hello ${brandName}!</div>
                 <div style="color:#475569;font-size:14px;line-height:1.6;margin-bottom:24px;">
-                  You received a new payment on the Stellar network.
+                  ${bodyText}
                 </div>
 
                 <!-- Amount card -->
@@ -167,6 +290,8 @@ interface EmailTemplatePreviewProps {
   onSaveTemplate?: (template: EmailTemplateConfig) => void | Promise<void>;
   /** Optional initial template to hydrate the editor with (e.g. saved prefs). */
   initialTemplate?: Partial<EmailTemplateConfig>;
+  /** Whether the interactive preview modal starts open. */
+  defaultModalOpen?: boolean;
 }
 
 const FIELD_LABEL_CLASS =
@@ -177,6 +302,7 @@ const FIELD_INPUT_CLASS =
 export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
   onSaveTemplate,
   initialTemplate,
+  defaultModalOpen = false,
 }) => {
   const [template, setTemplate] = useState<EmailTemplateConfig>({
     ...DEFAULT_EMAIL_TEMPLATE,
@@ -184,15 +310,40 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
   });
   const [showSource, setShowSource] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(defaultModalOpen);
+  const [previewViewport, setPreviewViewport] = useState<'desktop' | 'mobile'>('desktop');
 
   const previewHtml = useMemo(() => buildEmailTemplateHtml(template), [template]);
+  const resolvedSubject = useMemo(
+    () =>
+      interpolateEmailTemplateTokens(
+        template.subjectTemplate || DEFAULT_EMAIL_TEMPLATE.subjectTemplate || '',
+        template
+      ),
+    [template]
+  );
 
-  const updateField = <K extends keyof EmailTemplateConfig>(field: K, value: EmailTemplateConfig[K]) => {
+  const updateField = <K extends keyof EmailTemplateConfig>(
+    field: K,
+    value: EmailTemplateConfig[K]
+  ) => {
     setTemplate((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const insertPlaceholderIntoBody = (token: EmailTemplatePlaceholderToken) => {
+    setTemplate((prev) => {
+      const current = prev.bodyTemplate ?? DEFAULT_EMAIL_TEMPLATE.bodyTemplate ?? '';
+      const separator = current.endsWith(' ') || current.length === 0 ? '' : ' ';
+      return {
+        ...prev,
+        bodyTemplate: `${current}${separator}${token}`,
+      };
+    });
   };
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
+    saveEmailTemplatePreferences(template);
     if (onSaveTemplate) {
       await onSaveTemplate(template);
     }
@@ -222,8 +373,18 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
             Customize your branded receipt logo &amp; color scheme. The HTML preview updates live.
           </p>
         </div>
-        <div className="rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-200 px-3 py-1 text-xs font-semibold">
-          Branding Preview
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="open-preview-modal-btn"
+            onClick={() => setIsModalOpen(true)}
+            className="rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-200 px-3.5 py-1 text-xs font-semibold transition-colors cursor-pointer"
+          >
+            Preview Modal
+          </button>
+          <div className="rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-200 px-3 py-1 text-xs font-semibold">
+            Branding Preview
+          </div>
         </div>
       </div>
 
@@ -288,14 +449,46 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
                   <input
                     id="email-template-accent"
                     type="color"
-                    value={normalizeHexColor(template.accentColor, normalizeHexColor(template.primaryColor))}
+                    value={normalizeHexColor(
+                      template.accentColor,
+                      normalizeHexColor(template.primaryColor)
+                    )}
                     onChange={(e) => updateField('accentColor', e.target.value)}
                     className="h-11 w-12 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer"
                   />
                   <code className="text-xs font-mono text-slate-300">
-                    {normalizeHexColor(template.accentColor, normalizeHexColor(template.primaryColor))}
+                    {normalizeHexColor(
+                      template.accentColor,
+                      normalizeHexColor(template.primaryColor)
+                    )}
                   </code>
                 </div>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="email-template-body" className={FIELD_LABEL_CLASS}>
+                Message Body Template
+              </label>
+              <textarea
+                id="email-template-body"
+                value={template.bodyTemplate ?? ''}
+                onChange={(e) => updateField('bodyTemplate', e.target.value)}
+                rows={2}
+                className={FIELD_INPUT_CLASS}
+              />
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <span className="text-[11px] text-slate-500 mr-1">Insert token:</span>
+                {EMAIL_TEMPLATE_PLACEHOLDER_TOKENS.map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    onClick={() => insertPlaceholderIntoBody(token)}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-cyan-300 border border-slate-700 cursor-pointer"
+                  >
+                    {token}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -413,6 +606,77 @@ export const EmailTemplatePreview: React.FC<EmailTemplatePreviewProps> = ({
           </div>
         </div>
       </form>
+
+      {/* Interactive Preview Modal */}
+      {isModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Email Receipt Interactive Preview Modal"
+          data-testid="email-preview-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+        >
+          <div className="w-full max-w-3xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-white">
+                  Interactive Email Receipt Preview
+                </h3>
+                <p
+                  data-testid="email-modal-subject"
+                  className="text-xs text-slate-400 font-mono mt-0.5"
+                >
+                  Subject: {resolvedSubject}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="viewport-desktop-btn"
+                  onClick={() => setPreviewViewport('desktop')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer ${
+                    previewViewport === 'desktop'
+                      ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  Desktop
+                </button>
+                <button
+                  type="button"
+                  data-testid="viewport-mobile-btn"
+                  onClick={() => setPreviewViewport('mobile')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer ${
+                    previewViewport === 'mobile'
+                      ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  Mobile
+                </button>
+                <button
+                  type="button"
+                  data-testid="close-preview-modal-btn"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="p-6 bg-slate-950 flex justify-center">
+              <iframe
+                title="Modal payment receipt email preview"
+                srcDoc={previewHtml}
+                sandbox=""
+                data-testid="email-modal-preview-frame"
+                style={{ width: previewViewport === 'mobile' ? '375px' : '100%' }}
+                className="h-[520px] bg-white rounded-xl border border-slate-800 block transition-all"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
