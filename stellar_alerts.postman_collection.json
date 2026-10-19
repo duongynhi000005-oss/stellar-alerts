@@ -2,12 +2,22 @@
   "info": {
     "_postman_id": "86901d8d-960e-4ad2-b80c-b56cd9c59dc7",
     "name": "Stellar Alerts API",
-    "description": "Complete Postman collection for testing all endpoints in the Stellar Alerts API.",
+    "description": "Complete Postman v2.1.0 collection for testing all endpoints in the Stellar Alerts API with pre-configured Bearer {{jwtToken}} authentication and environment variable presets.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwtToken}}",
+        "type": "string"
+      }
+    ]
   },
   "item": [
     {
-      "name": "Health",
+      "name": "Health & Observability",
       "item": [
         {
           "name": "Health Check",
@@ -16,14 +26,44 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/health",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "health"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
             },
-            "description": "Check if API server is running."
+            "description": "Check if the Fastify API server is running."
+          },
+          "response": []
+        },
+        {
+          "name": "Deep Health Probe",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/deep",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "deep"]
+            },
+            "description": "Inspect PostgreSQL, Redis, and Horizon/Soroban RPC connectivity."
+          },
+          "response": []
+        },
+        {
+          "name": "Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Scrape Prometheus text format metrics for queue latency, ingestion lag, and delivery SLOs."
           },
           "response": []
         }
@@ -48,13 +88,8 @@
             },
             "url": {
               "raw": "{{baseUrl}}/auth/request-link",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "request-link"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "request-link"]
             },
             "description": "Request a magic login link for an email address."
           },
@@ -69,8 +104,9 @@
                 "exec": [
                   "var jsonData = pm.response.json();",
                   "if (jsonData.token) {",
+                  "    pm.collectionVariables.set(\"jwtToken\", jsonData.token);",
                   "    pm.collectionVariables.set(\"token\", jsonData.token);",
-                  "    console.log(\"Saved session token to variable:\", jsonData.token);",
+                  "    console.log(\"Saved session token to variable jwtToken:\", jsonData.token);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -82,29 +118,47 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/auth/verify?token={{magicToken}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "verify"
-              ],
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "verify"],
               "query": [
                 {
                   "key": "token",
                   "value": "{{magicToken}}",
-                  "description": "JWT token received from console logs or email"
+                  "description": "One-time magic link token received from console logs or email"
                 }
               ]
             },
             "description": "Verify magic link token and obtain session JWT token."
           },
           "response": []
+        },
+        {
+          "name": "Refresh Session Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            },
+            "description": "Rotate refresh token and issue a new short-lived JWT access token."
+          },
+          "response": []
         }
       ]
     },
     {
-      "name": "Wallets",
+      "name": "Wallets & Cursor Status",
       "item": [
         {
           "name": "Add Wallet",
@@ -129,13 +183,18 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "{{jwtToken}}",
                   "type": "string"
                 }
               ]
             },
             "method": "POST",
             "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -147,12 +206,8 @@
             },
             "url": {
               "raw": "{{baseUrl}}/wallets",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "wallets"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["wallets"]
             },
             "description": "Add a new Stellar wallet to track (Requires Auth)."
           },
@@ -166,23 +221,55 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "{{jwtToken}}",
                   "type": "string"
                 }
               ]
             },
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/wallets",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "wallets"
+              "host": ["{{baseUrl}}"],
+              "path": ["wallets"]
+            },
+            "description": "Get all tracked wallets for the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Wallet Ingestion Cursor Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
               ]
             },
-            "description": "Get all tracked wallets for the logged in user (Requires Auth)."
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{walletId}}/cursor",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallets", "{{walletId}}", "cursor"]
+            },
+            "description": "Retrieve Horizon SSE ingestion cursor state and gap detection diagnostics for a wallet."
           },
           "response": []
         },
@@ -194,22 +281,23 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "{{jwtToken}}",
                   "type": "string"
                 }
               ]
             },
             "method": "DELETE",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/wallets/{{walletId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "wallets",
-                "{{walletId}}"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["wallets", "{{walletId}}"]
             },
             "description": "Delete a tracked wallet by ID (Requires Auth)."
           },
@@ -223,16 +311,28 @@
         {
           "name": "Get Payments",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/payments?walletId={{walletId}}&limit=20",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "payments"
-              ],
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"],
               "query": [
                 {
                   "key": "walletId",
@@ -244,24 +344,35 @@
                 }
               ]
             },
-            "description": "Get payments for a specific wallet."
+            "description": "Get paginated payment history for a specific wallet."
           },
           "response": []
         },
         {
           "name": "Get Payments Summary",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/payments/summary?walletId={{walletId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "payments",
-                "summary"
-              ],
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "summary"],
               "query": [
                 {
                   "key": "walletId",
@@ -269,7 +380,370 @@
                 }
               ]
             },
-            "description": "Get payment summary and statistics for a specific wallet."
+            "description": "Get aggregated payment summary and volumetric statistics for a wallet."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Create Webhook Endpoint",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/webhooks/stellar-alerts\",\n  \"description\": \"Production treasury alert receiver\",\n  \"events\": [\"payment.received\", \"whale.detected\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Register a new HMAC-signed webhook endpoint."
+          },
+          "response": []
+        },
+        {
+          "name": "List Webhooks",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "List all configured webhook endpoints for the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Webhook",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/{{webhookId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "{{webhookId}}"]
+            },
+            "description": "Delete a registered webhook endpoint by ID."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Alert Rules & Notifications",
+      "item": [
+        {
+          "name": "Create Alert Rule",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletId\": \"{{walletId}}\",\n  \"name\": \"High Value USDC Transfer Alert\",\n  \"assets\": [\"USDC\", \"XLM\"],\n  \"minAmount\": \"1000\",\n  \"channels\": [\"webhook\", \"telegram\", \"email\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/alert-rules",
+              "host": ["{{baseUrl}}"],
+              "path": ["alert-rules"]
+            },
+            "description": "Create a custom payment alert rule with asset and threshold filters."
+          },
+          "response": []
+        },
+        {
+          "name": "List Alert Rules",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alert-rules",
+              "host": ["{{baseUrl}}"],
+              "path": ["alert-rules"]
+            },
+            "description": "List all alert rules configured by the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Notification Preferences",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emailEnabled\": true,\n  \"telegramEnabled\": true,\n  \"enabledChannels\": [\"email\", \"telegram\", \"webhook\"],\n  \"minAmount\": 50\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/notifications/preferences",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", "preferences"]
+            },
+            "description": "Update multi-channel notification delivery preferences."
+          },
+          "response": []
+        },
+        {
+          "name": "List Dead Letters",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dead-letters",
+              "host": ["{{baseUrl}}"],
+              "path": ["dead-letters"]
+            },
+            "description": "Inspect failed alert deliveries in the dead-letter queue."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Exports, Simulation & GraphQL",
+      "item": [
+        {
+          "name": "Create Payment Export Job",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletId\": \"{{walletId}}\",\n  \"format\": \"csv\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/exports",
+              "host": ["{{baseUrl}}"],
+              "path": ["exports"]
+            },
+            "description": "Enqueue an asynchronous CSV or PDF export job for wallet payment history."
+          },
+          "response": []
+        },
+        {
+          "name": "Simulate Soroban Transaction",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"xdr\": \"AAAAAgAAAABex1g0...\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/simulation",
+              "host": ["{{baseUrl}}"],
+              "path": ["simulation"]
+            },
+            "description": "Simulate a base64 XDR transaction envelope against Soroban RPC."
+          },
+          "response": []
+        },
+        {
+          "name": "GraphQL Query",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwtToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"query GetWallets { wallets { id publicKey label } }\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": ["{{baseUrl}}"],
+              "path": ["graphql"]
+            },
+            "description": "Execute authenticated GraphQL queries against the Stellar Alerts schema."
           },
           "response": []
         }
@@ -283,7 +757,7 @@
       "type": "string"
     },
     {
-      "key": "magicToken",
+      "key": "jwtToken",
       "value": "",
       "type": "string"
     },
@@ -293,7 +767,22 @@
       "type": "string"
     },
     {
+      "key": "magicToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "walletId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "webhookId",
       "value": "",
       "type": "string"
     }
