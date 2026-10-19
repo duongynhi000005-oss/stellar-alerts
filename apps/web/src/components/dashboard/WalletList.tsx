@@ -1,5 +1,6 @@
 import React from 'react';
 import { WalletDTO } from '@stellar-alerts/shared';
+import { WalletCard } from './WalletCard';
 
 interface WalletListProps {
   wallets: WalletDTO[];
@@ -83,39 +84,15 @@ export const WalletList: React.FC<WalletListProps> = ({
             <div className="text-xs text-slate-400 mt-1">Combined transaction ledger</div>
           </button>
 
-          {wallets.map((wallet) => {
-            const isSelected = selectedWalletId === wallet.id;
-            return (
-              <div
-                key={wallet.id}
-                onClick={() => onSelectWallet(wallet.id)}
-                className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 flex items-center justify-between group ${
-                  isSelected
-                    ? 'bg-purple-950/30 border-purple-500/50 shadow-md shadow-purple-500/10'
-                    : 'bg-slate-950/30 border-slate-800/60 hover:border-slate-700'
-                }`}
-              >
-                <div className="truncate pr-2">
-                  <div className="font-semibold text-sm text-white truncate">
-                    {wallet.label || 'Unnamed Wallet'}
-                  </div>
-                  <div className="text-xs text-slate-400 font-mono mt-1 truncate">
-                    {wallet.publicKey.substring(0, 8)}...{wallet.publicKey.substring(48)}
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemoveWallet(wallet.id);
-                  }}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Remove wallet"
-                >
-                  🗑️
-                </button>
-              </div>
-            );
-          })}
+          {wallets.map((wallet) => (
+            <WalletCard
+              key={wallet.id}
+              wallet={wallet}
+              isSelected={selectedWalletId === wallet.id}
+              onSelect={onSelectWallet}
+              onRemove={onRemoveWallet}
+            />
+          ))}
         </div>
       )}
     </div>
