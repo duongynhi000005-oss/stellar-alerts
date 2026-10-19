@@ -1,10 +1,22 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RuleBuilder, RuleAST } from './RuleBuilder';
+import {
+  generateStellarTestKeypair,
+  verifyStellarSignature,
+  STELLAR_SIGNATURE_HEADER,
+} from '../../lib/wallet/signature-guard';
 
 describe('RuleBuilder', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
   it('exports a JSON AST payload for a single condition', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
@@ -68,5 +80,90 @@ describe('RuleBuilder', () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText('Value is required.')).toBeInTheDocument();
+  });
+
+  it('requires non-custodial wallet signature re-authentication and sends X-Stellar-Signature header (#648)', async () => {
+    const user = userEvent.setup();
+    const keypair = await generateStellarTestKeypair();
+    const onSave = vi.fn();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(
+      <RuleBuilder
+        onSave={onSave}
+        requireSignature={true}
+        walletAddress={keypair.publicKey}
+        apiEndpoint="http://localhost:3001/rules"
+        signer={async (challenge) => keypair.sign(challenge)}
+      />
+    );
+
+    await user.type(screen.getByLabelText('Condition value'), '250');
+    await user.click(screen.getByRole('button', { name: 'Save Rule' }));
+
+    // WalletAuthModal opens before saving
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wallet-auth-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('confirm-wallet-signature-btn'));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const [savedAst, proof] = onSave.mock.calls[0];
+    expect(savedAst).toEqual({
+      logic: 'AND',
+      conditions: [{ field: 'amount', operator: 'gt', value: '250' }],
+    });
+    expect(proof.publicKey).toBe(keypair.publicKey);
+
+    const verified = await verifyStellarSignature({
+      publicKey: keypair.publicKey,
+      challenge: proof.challenge,
+      signature: proof.signature,
+    });
+    expect(verified).toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:3001/rules');
+    expect(init.headers[STELLAR_SIGNATURE_HEADER]).toBe(proof.headerValue);
+  });
+
+  it('blocks rule mutation when the user rejects the wallet signature prompt (#648)', async () => {
+    const user = userEvent.setup();
+    const keypair = await generateStellarTestKeypair();
+    const onSave = vi.fn();
+    const onSignatureError = vi.fn();
+
+    render(
+      <RuleBuilder
+        onSave={onSave}
+        requireSignature={true}
+        walletAddress={keypair.publicKey}
+        onSignatureError={onSignatureError}
+        signer={async () => {
+          throw new Error('User rejected request in wallet');
+        }}
+      />
+    );
+
+    await user.type(screen.getByLabelText('Condition value'), '100');
+    await user.click(screen.getByRole('button', { name: 'Save Rule' }));
+
+    await user.click(screen.getByTestId('confirm-wallet-signature-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wallet-auth-error')).toBeInTheDocument();
+    });
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onSignatureError).toHaveBeenCalledTimes(1);
   });
 });

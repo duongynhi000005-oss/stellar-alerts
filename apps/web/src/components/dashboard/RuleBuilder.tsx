@@ -1,4 +1,10 @@
 import React, { useState } from 'react';
+import {
+  SignedMutationProof,
+  WalletSignerFn,
+  submitSignedMutation,
+} from '../../lib/wallet/signature-guard';
+import { WalletAuthModal } from '../auth/WalletAuthModal';
 
 export type RuleField = 'amount' | 'asset' | 'sender';
 export type RuleLogic = 'AND' | 'OR';
@@ -18,11 +24,25 @@ export interface RuleAST {
     operator: RuleOperator;
     value: string;
   }[];
+  webhookUrl?: string;
 }
 
-interface RuleBuilderProps {
-  onSave: (ast: RuleAST) => void;
+export interface RuleBuilderProps {
+  onSave: (ast: RuleAST, proof?: SignedMutationProof) => void;
+  /** When true, prompts the connected wallet to sign a timestamped challenge before saving. */
+  requireSignature?: boolean;
+  /** Connected Stellar public key (`G...`) used for non-custodial signature re-authentication. */
+  walletAddress?: string;
+  /** Optional API endpoint to submit the signed rule mutation with `X-Stellar-Signature`. */
+  apiEndpoint?: string;
+  /** Optional custom wallet signer function. */
+  signer?: WalletSignerFn;
+  /** Optional callback when wallet signature or API mutation fails. */
+  onSignatureError?: (error: Error) => void;
 }
+
+const DEFAULT_WALLET_ADDRESS =
+  'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
 const FIELD_LABELS: Record<RuleField, string> = {
   amount: 'Amount',
@@ -80,11 +100,25 @@ export const validateConditions = (conditions: RuleCondition[]): Record<string, 
   return errors;
 };
 
-export const RuleBuilder: React.FC<RuleBuilderProps> = ({ onSave }) => {
+export const RuleBuilder: React.FC<RuleBuilderProps> = ({
+  onSave,
+  requireSignature = false,
+  walletAddress,
+  apiEndpoint,
+  signer,
+  onSignatureError,
+}) => {
   const [logic, setLogic] = useState<RuleLogic>('AND');
   const [conditions, setConditions] = useState<RuleCondition[]>([makeCondition()]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<RuleAST | null>(null);
+  const [pendingAst, setPendingAst] = useState<RuleAST | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [lastSignatureProof, setLastSignatureProof] = useState<SignedMutationProof | null>(null);
+
+  const shouldRequireSignature = Boolean(
+    requireSignature || walletAddress || apiEndpoint || signer
+  );
 
   const updateCondition = (id: string, updates: Partial<RuleCondition>) => {
     setConditions((prev) =>
@@ -120,8 +154,33 @@ export const RuleBuilder: React.FC<RuleBuilderProps> = ({ onSave }) => {
       logic,
       conditions: conditions.map(({ field, operator, value }) => ({ field, operator, value })),
     };
+
+    if (shouldRequireSignature) {
+      setPendingAst(ast);
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     setPreview(ast);
     onSave(ast);
+  };
+
+  const handleSignatureSuccess = async (proof: SignedMutationProof) => {
+    if (!pendingAst) return;
+
+    if (apiEndpoint) {
+      await submitSignedMutation({
+        endpoint: apiEndpoint,
+        method: 'POST',
+        payload: pendingAst,
+        proof,
+      });
+    }
+
+    setLastSignatureProof(proof);
+    setPreview(pendingAst);
+    setIsAuthModalOpen(false);
+    onSave(pendingAst, proof);
   };
 
   return (
@@ -246,6 +305,21 @@ export const RuleBuilder: React.FC<RuleBuilderProps> = ({ onSave }) => {
         </button>
       </div>
 
+      {lastSignatureProof && (
+        <div
+          data-testid="signature-verified-badge"
+          className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 flex items-center justify-between gap-2"
+        >
+          <span>
+            ✅ Authorized by wallet{' '}
+            <code className="font-mono">{lastSignatureProof.publicKey.slice(0, 8)}...</code>
+          </span>
+          <span className="font-mono text-[11px] text-emerald-400">
+            X-Stellar-Signature attached
+          </span>
+        </div>
+      )}
+
       {preview && (
         <div>
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
@@ -256,6 +330,18 @@ export const RuleBuilder: React.FC<RuleBuilderProps> = ({ onSave }) => {
           </pre>
         </div>
       )}
+
+      <WalletAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleSignatureSuccess}
+        onError={(err) => onSignatureError?.(err)}
+        publicKey={walletAddress || DEFAULT_WALLET_ADDRESS}
+        action="RULE_MUTATION"
+        actionLabel="Save Alert Rule Configuration"
+        payload={pendingAst}
+        signer={signer}
+      />
     </div>
   );
 };
