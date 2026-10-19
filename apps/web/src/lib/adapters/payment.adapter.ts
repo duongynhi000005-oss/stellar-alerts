@@ -5,7 +5,7 @@
  * Each method represents a single RPC round-trip.
  */
 
-import { PaymentDTO } from '@stellar-alerts/shared';
+import { PaymentDTO, PaymentSortField, SortOrder } from '@stellar-alerts/shared';
 import { ApiAdapter } from './api.adapter';
 
 export interface GetPaymentsResponse {
@@ -27,8 +27,8 @@ export interface GetPaymentsFilters {
   memo?: string;
   dateFrom?: string | Date;
   dateTo?: string | Date;
-  sortBy?: 'receivedAt' | 'amount' | 'asset';
-  sortOrder?: 'asc' | 'desc';
+  sortBy?: PaymentSortField;
+  sortOrder?: SortOrder;
 }
 
 export class PaymentAdapter extends ApiAdapter {

@@ -1,3 +1,4 @@
+import type { PaymentDTO, PaymentSortField, SortOrder } from '@stellar-alerts/shared';
 import { prisma, prismaRead } from '../../lib/prisma';
 import { isSupportedFiatCurrency, convertUsdToFiat, SupportedFiatCurrency } from '../../lib/exchange-rates';
 import { addDifferentialPrivacyNoise } from '../../utils/differential-privacy';
@@ -10,8 +11,7 @@ import {
 import { withSummaryCache } from '../../lib/summaryCache';
 import { simulateTransaction, SorobanFeeEstimate } from '../../lib/soroban';
 
-export type PaymentSortField = 'receivedAt' | 'amount' | 'asset';
-export type SortOrder = 'asc' | 'desc';
+export type { PaymentDTO, PaymentSortField, SortOrder };
 
 export interface GetPaymentsFilters {
   asset?: string;

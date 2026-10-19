@@ -1,12 +1,17 @@
-import { z } from 'zod';
-import {
-  requestLinkSchema,
-  verifyLinkSchema,
-  didChallengeSchema,
-  didVerifySchema,
-} from '../../../api/src/modules/auth/auth.schema';
-
-export type RequestLinkDto = z.infer<typeof requestLinkSchema>;
-export type VerifyLinkDto = z.infer<typeof verifyLinkSchema>;
-export type DIDChallengeDto = z.infer<typeof didChallengeSchema>;
-export type DIDVerifyDto = z.infer<typeof didVerifySchema>;
+export type {
+  UserDTO,
+  WalletDTO,
+  PaymentDTO,
+  DeliveryEventDTO,
+  NotificationPreferenceDTO,
+  WebhookDTO,
+  RequestLinkDto,
+  VerifyLinkDto,
+  DIDChallengeDto,
+  DIDVerifyDto,
+  CreateWalletDto,
+  PaymentSortField,
+  SortOrder,
+  GetPaymentsFiltersDTO,
+  PaymentsSummaryDTO,
+} from '@stellar-alerts/shared';

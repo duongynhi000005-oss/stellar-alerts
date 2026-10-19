@@ -9,50 +9,9 @@ export * from './merkle';
 // Single source of truth for Stellar StrKey / transaction-hash validation
 // (Ed25519 public keys, contract IDs, muxed addresses, transaction hashes).
 export * from './strkey';
-
-export interface UserDTO {
-  id: string;
-  email: string;
-  createdAt: Date | string;
-}
-
-export interface WalletDTO {
-  id: string;
-  userId: string;
-  publicKey: string;
-  label?: string | null;
-  createdAt: Date | string;
-}
-
-export interface PaymentDTO {
-  id: string;
-  walletId: string;
-  txHash: string;
-  fromAddress: string;
-  amount: number | string;
-  asset: string;
-  memo?: string | null;
-  receivedAt: Date | string;
-}
-
-export interface DeliveryEventDTO {
-  id: string;
-  webhookId: string;
-  statusCode?: number | null;
-  responseBody?: string | null;
-  error?: string | null;
-  sentAt: Date | string;
-}
-
-export interface NotificationPreferenceDTO {
-  id: string;
-  userId: string;
-  telegramChatId?: string | null;
-  telegramEnabled: boolean;
-  emailEnabled: boolean;
-  whatsappNumber?: string | null;
-  whatsappEnabled: boolean;
-}
+// Shared DTO interfaces, Zod schemas, and runtime validators (#571).
+export * from './dto';
+import type { PaymentDTO } from './dto';
 
 /**
  * Validates whether a given string is a valid Stellar Ed25519 Public Key.
