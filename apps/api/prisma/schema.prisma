@@ -849,3 +849,44 @@ model RefreshTokenHistory {
   @@index([userId])
 }
 
+// ── Automated Range Partitioning & Cold Storage Archival (#647) ──────────────
+//
+// Stores historical Payment rows older than the hot retention window (default
+// 90 days) partitioned by UTC calendar month ("YYYY-MM") so primary B-tree
+// indices on `Payment` remain compact and fast for real-time (<30 day) queries.
+model ArchivedPayment {
+  id           String   @id
+  walletId     String
+  txHash       String   @unique
+  fromAddress  String
+  amount       Decimal
+  asset        String
+  assetIssuer  String?
+  memo         String?
+  receivedAt   DateTime
+  createdAt    DateTime
+  partitionKey String   // UTC month bucket, e.g. "2026-07"
+  archivedAt   DateTime @default(now())
+
+  @@index([partitionKey, receivedAt])
+  @@index([walletId, receivedAt])
+  @@index([receivedAt])
+  @@index([txHash])
+}
+
+model PaymentPartitionRegistry {
+  id             String    @id @default(cuid())
+  partitionKey   String    @unique // "YYYY-MM"
+  partitionName  String    @unique // e.g. "payments_y2026m07"
+  rangeStart     DateTime
+  rangeEnd       DateTime
+  status         String    @default("active") // "active" | "archived" | "detached"
+  rowCount       Int       @default(0)
+  lastArchivedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, rangeStart])
+}
+
+
