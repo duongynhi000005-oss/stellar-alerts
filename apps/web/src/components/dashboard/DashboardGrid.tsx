@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { EmptyWatchersState } from './EmptyWatchersState';
 
 export interface DashboardWidgetItem {
   id: string;
@@ -8,9 +9,13 @@ export interface DashboardWidgetItem {
   content: React.ReactNode;
 }
 
-interface DashboardGridProps {
+export interface DashboardGridProps {
   items: DashboardWidgetItem[];
   storageKey?: string;
+  walletsCount?: number;
+  wallets?: ReadonlyArray<unknown>;
+  onAddFirstWallet?: () => void;
+  onOpenAddModal?: () => void;
 }
 
 const DEFAULT_STORAGE_KEY = 'stellar-alerts:dashboard-order';
@@ -32,7 +37,17 @@ function readStoredOrder(storageKey: string, itemIds: string[]): string[] {
 export const DashboardGrid: React.FC<DashboardGridProps> = ({
   items,
   storageKey = DEFAULT_STORAGE_KEY,
+  walletsCount,
+  wallets,
+  onAddFirstWallet,
+  onOpenAddModal,
 }) => {
+  const isZeroWatcherState =
+    typeof walletsCount === 'number'
+      ? walletsCount === 0
+      : Array.isArray(wallets)
+        ? wallets.length === 0
+        : items.length === 0;
   const itemIds = items.map((item) => item.id);
 
   const [order, setOrder] = useState<string[]>(() =>
@@ -96,6 +111,12 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({
 
   return (
     <div>
+      {isZeroWatcherState && (
+        <EmptyWatchersState
+          onAddFirstWallet={onAddFirstWallet}
+          onOpenAddModal={onOpenAddModal}
+        />
+      )}
       {orderedItems.map((item, index) => (
         <section
           key={item.id}

@@ -1,4 +1,5 @@
 export * from './DashboardGrid';
+export * from './EmptyWatchersState';
 export * from './SummaryStats';
 export * from './VolumeChart';
 export * from './WebhookSandbox';

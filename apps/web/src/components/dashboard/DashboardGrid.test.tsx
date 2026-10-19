@@ -91,4 +91,33 @@ describe('DashboardGrid', () => {
     expect(labels[1]).toContain('Summary Overview');
     expect(labels[2]).toContain('Wallets');
   });
+
+  it('displays EmptyWatchersState when user has 0 registered wallets and triggers CTA callback', () => {
+    let triggered = false;
+    render(
+      <DashboardGrid
+        items={items}
+        walletsCount={0}
+        onAddFirstWallet={() => {
+          triggered = true;
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('empty-watchers-state')).toBeInTheDocument();
+    const cta = screen.getByRole('button', { name: /add your first wallet/i });
+    fireEvent.click(cta);
+    expect(triggered).toBe(true);
+  });
+
+  it('hides EmptyWatchersState when at least one wallet is present', () => {
+    const { rerender } = render(
+      <DashboardGrid items={items} walletsCount={1} />
+    );
+
+    expect(screen.queryByTestId('empty-watchers-state')).not.toBeInTheDocument();
+
+    rerender(<DashboardGrid items={items} wallets={[{ id: 'w-1' }]} />);
+    expect(screen.queryByTestId('empty-watchers-state')).not.toBeInTheDocument();
+  });
 });

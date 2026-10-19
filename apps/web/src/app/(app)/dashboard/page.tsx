@@ -188,6 +188,11 @@ export default function DashboardPage() {
 
       {/* Customizable Dashboard Grid */}
       <DashboardGrid
+        walletsCount={wallets.length}
+        onAddFirstWallet={() => {
+          const el = document.getElementById('add-wallet-section');
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }}
         items={[
           {
             id: 'summary',
