@@ -15,6 +15,9 @@ const envSchema = z.object({
   REDIS_SENTINEL_PASSWORD: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
   PORT: z.string().optional().default("3001"),
+  // Primary application origin(s) permitted by strict CORS controls (#565).
+  APP_URL: z.string().optional().default("http://localhost:3000"),
+  CORS_ORIGIN: z.string().optional(),
   // Comma-separated browser origins allowed to send cookie-authenticated mutations.
   CSRF_ALLOWED_ORIGINS: z.string().optional().default("http://localhost:3000"),
   MASTER_ENCRYPTION_KEY: z.string().min(32).describe('Master key for encrypting webhook secrets (AES-256-GCM)'),

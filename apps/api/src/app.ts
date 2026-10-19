@@ -4,9 +4,10 @@ import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { z } from 'zod';
 import { randomUUID } from 'crypto';
+import { env } from './config/env';
 import prismaPlugin from './plugins/prisma';
+import metricsPlugin from './plugins/metrics';
 import { registerSSEPushPlugin } from './plugins/websocket';
 import { prisma } from './lib/prisma';
 import { alertQueue } from './lib/queue';
@@ -16,7 +17,10 @@ import { walletsRoutes } from './modules/wallets/wallets.routes';
 import { paymentsRoutes } from './modules/payments/payments.routes';
 import { webhooksRoutes } from './modules/webhooks/webhooks.routes';
 import { accountRoutes } from './modules/account/account.routes';
-import { registerSecurityHeaders } from './middleware/security.middleware';
+import {
+  buildStrictCorsOptions,
+  registerSecurityHeaders,
+} from './middleware/security.middleware';
 import { registerCorrelation } from './middleware/correlation.middleware';
 import { registerIdempotency } from './middleware/idempotency.middleware';
 import { sorobanStateRoutes } from './modules/soroban-state/soroban-state.routes';
@@ -54,9 +58,80 @@ export const buildApp = async () => {
     },
   });
 
-  await app.register(cors, {
-    origin: true // Allow all origins for dev, or specify 'http://localhost:3000'
+  app.addHook('onRequest', async (request, reply) => {
+    void reply.header('x-request-id', request.requestId || request.id);
   });
+
+  // ── Security & observability hooks (registered before routes) ────────────
+  await registerSecurityHeaders(app);
+  await registerCorrelation(app);
+  await registerIdempotency(app);
+
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof AppError) {
+      if (error.statusCode >= 500) {
+        request.log.error({ err: error }, error.message);
+      } else {
+        request.log.warn({ err: error }, error.message);
+      }
+      return reply.status(error.statusCode).send({
+        error: {
+          code: error.code,
+          message: error.message,
+          ...(error.details !== undefined ? { details: error.details } : {}),
+          requestId: request.requestId || request.id,
+        },
+      });
+    }
+
+    if (Array.isArray((error as any).validation)) {
+      request.log.warn({ err: error }, 'Request schema validation failed');
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Request validation failed',
+          details: (error as any).validation,
+          requestId: request.requestId || request.id,
+        },
+      });
+    }
+
+    const err = error as any;
+    if (err.statusCode !== undefined && err.statusCode >= 400 && err.statusCode < 500) {
+      request.log.warn({ err: error }, 'Bad request rejected');
+      return reply.status(err.statusCode).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message:
+            err.code === 'FST_ERR_CTP_INVALID_JSON_PARSE_ERROR'
+              ? 'Malformed JSON in request body'
+              : 'Bad request',
+          ...(Array.isArray(err.errors) ? { details: err.errors } : {}),
+          requestId: request.requestId || request.id,
+        },
+      });
+    }
+
+    request.log.error({ err: error }, 'Unhandled error');
+    return reply.status(500).send({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An unexpected error occurred',
+        requestId: request.requestId || request.id,
+      },
+    });
+  });
+
+  // Issue #565: Strict CORS origin controls matching APP_URL / CORS_ORIGIN / CSRF_ALLOWED_ORIGINS
+  const configuredOrigins = [
+    process.env.APP_URL,
+    process.env.CORS_ORIGIN,
+    env.APP_URL,
+    env.CORS_ORIGIN,
+    env.CSRF_ALLOWED_ORIGINS,
+  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+
+  await app.register(cors, buildStrictCorsOptions(configuredOrigins));
 
   await app.register(rateLimit, {
     global: true,
@@ -88,6 +163,18 @@ export const buildApp = async () => {
 
   app.get('/health', async () => {
     return { status: 'ok' };
+  });
+
+  app.get('/health/ready', async (_request, reply) => {
+    const redisHealth = await checkRedisReadiness();
+    const database = await dbFailover.getStatus();
+    const isReady = redisHealth.isReady;
+    const degraded = !isReady || database.state === 'DEGRADED_READ_ONLY';
+    return reply.status(isReady ? 200 : 503).send({
+      status: degraded ? 'degraded' : 'ready',
+      redis: redisHealth,
+      database,
+    });
   });
 
   // Issue #18: Deep Health Inspection Probe — no authentication required
@@ -136,11 +223,12 @@ export const buildApp = async () => {
   app.register(paymentsRoutes);
   app.register(webhooksRoutes);
   app.register(accountRoutes);
+  app.register(sorobanStateRoutes);
   app.register(notificationsRoutes);
   app.register(alertRulesRoutes);
   app.register(deadLettersRoutes);
   app.register(slackRoutes);
-await app.register(graphqlRoutes);
+  await app.register(graphqlRoutes);
   app.register(exportsRoutes);
   app.register(simulationRoutes);
   app.register(discordInteractionsRoutes);
