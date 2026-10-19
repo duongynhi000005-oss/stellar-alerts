@@ -1,6 +1,10 @@
 import fp from 'fastify-plugin';
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { renderWebhookDispatchMetrics } from '../lib/webhook-metrics';
+import {
+  prometheusMetricsService,
+  PrometheusMetricsService,
+} from '../modules/metrics/prometheus.service';
 
 export interface QueueMetricsSnapshot {
   queueName: string;
@@ -10,9 +14,18 @@ export interface QueueMetricsSnapshot {
   failedCount: number;
   avgLatencyMs: number;
   activeWorkers: number;
+  ledgerLagSeconds?: number;
 }
 
-export function generatePrometheusMetrics(snapshot?: Partial<QueueMetricsSnapshot>): string {
+export interface MetricsPluginOptions {
+  bearerToken?: string;
+  metricsService?: PrometheusMetricsService;
+}
+
+export function generatePrometheusMetrics(
+  snapshot?: Partial<QueueMetricsSnapshot>,
+  service: PrometheusMetricsService = prometheusMetricsService
+): string {
   const qName = snapshot?.queueName || 'webhooks';
   const waiting = snapshot?.waitingCount ?? 0;
   const active = snapshot?.activeCount ?? 0;
@@ -20,6 +33,22 @@ export function generatePrometheusMetrics(snapshot?: Partial<QueueMetricsSnapsho
   const failed = snapshot?.failedCount ?? 0;
   const latency = snapshot?.avgLatencyMs ?? 42.5;
   const workers = snapshot?.activeWorkers ?? 2;
+
+  if (snapshot) {
+    service.setQueueDepth({
+      queueName: qName,
+      waitingCount: waiting,
+      activeCount: active,
+      completedCount: completed,
+      failedCount: failed,
+    });
+    if (snapshot.avgLatencyMs !== undefined) {
+      service.observeQueueLatencyMs(snapshot.avgLatencyMs, qName);
+    }
+    if (snapshot.ledgerLagSeconds !== undefined) {
+      service.setLedgerLagSeconds(snapshot.ledgerLagSeconds);
+    }
+  }
 
   const mem = process.memoryUsage();
   const uptime = process.uptime();
@@ -57,6 +86,9 @@ export function generatePrometheusMetrics(snapshot?: Partial<QueueMetricsSnapsho
     '# TYPE nodejs_heap_used_bytes gauge',
     `nodejs_heap_used_bytes ${mem.heapUsed}`,
     '',
+    // Ingestion lag, queue latency histogram, and provider delivery SLO metrics (#646)
+    service.renderMetrics(),
+    '',
     // Per-phase outbound webhook dispatch histograms (DNS / TCP / TLS / TTFB /
     // response stream). Appended last so existing consumers of the queue
     // metrics keep parsing an unchanged prefix.
@@ -65,10 +97,26 @@ export function generatePrometheusMetrics(snapshot?: Partial<QueueMetricsSnapsho
   ].join('\n');
 }
 
-const metricsPlugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
+const metricsPlugin: FastifyPluginAsync<MetricsPluginOptions> = async (
+  fastify: FastifyInstance,
+  opts: MetricsPluginOptions
+) => {
+  const service = opts?.metricsService ?? prometheusMetricsService;
+
   fastify.get('/metrics', async (request, reply) => {
+    const expectedToken = opts?.bearerToken ?? process.env.METRICS_BEARER_TOKEN;
+    const authHeader =
+      typeof request.headers.authorization === 'string'
+        ? request.headers.authorization
+        : undefined;
+
+    if (!service.verifyBearerToken(authHeader, expectedToken)) {
+      reply.code(401).header('WWW-Authenticate', 'Bearer realm="metrics"');
+      return { error: 'Unauthorized: valid bearer token required for /metrics' };
+    }
+
     reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    return generatePrometheusMetrics();
+    return generatePrometheusMetrics(undefined, service);
   });
 };
 
