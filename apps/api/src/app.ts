@@ -30,6 +30,8 @@ import { exportsRoutes } from './modules/exports/exports.routes';
 import { simulationRoutes } from './modules/simulation/simulation.routes';
 import { openApiOptions } from './openapi.config';
 import { loggerOptions } from './lib/logger';
+import { env } from './config/env';
+import metricsPlugin from './plugins/metrics';
 
 import { checkRedisReadiness, getRedisStatus } from './lib/redis';
 import { dbFailover } from './lib/db-failover';
@@ -58,10 +60,36 @@ export const buildApp = async () => {
     origin: true // Allow all origins for dev, or specify 'http://localhost:3000'
   });
 
+  const defaultIpLimit = Number(env.RATE_LIMIT_MAX) || 100;
+  const apiKeyLimit = Number(process.env.RATE_LIMIT_API_KEY_MAX) || 1000;
+
   await app.register(rateLimit, {
     global: true,
-    max: env.RATE_LIMIT_MAX,
     timeWindow: '1 minute',
+    keyGenerator: (req) => {
+      const apiKey = (req.headers['x-api-key'] || req.headers['authorization']) as string | undefined;
+      if (apiKey && typeof apiKey === 'string' && apiKey.trim().length > 0) {
+        return `apikey:${apiKey.trim()}`;
+      }
+      return req.ip;
+    },
+    max: (_req, key) => {
+      if (typeof key === 'string' && key.startsWith('apikey:')) {
+        return apiKeyLimit;
+      }
+      return defaultIpLimit;
+    },
+    addHeaders: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+      'retry-after': true,
+    },
+    addHeadersOnExceeding: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+    },
   });
 
   await app.register(multipart, {
