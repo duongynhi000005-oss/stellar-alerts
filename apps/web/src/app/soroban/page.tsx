@@ -22,6 +22,7 @@ export function truncateLongXdr(xdr: string, maxLength = 32): { truncated: strin
 export default function SorobanInspectorPage() {
   const [activeTab, setActiveTab] = useState<'inspector' | 'simulation'>('inspector');
   const [lookupContractId, setLookupContractId] = useState('CCONTRACTSAC2222222222222222222222222222222222222222222');
+  const [activeContractFilter, setActiveContractFilter] = useState('CCONTRACTSAC2222222222222222222222222222222222222222222');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [copiedXdrId, setCopiedXdrId] = useState<string | null>(null);
   const [expandedXdrs, setExpandedXdrs] = useState<Record<string, boolean>>({});
@@ -33,6 +34,7 @@ export default function SorobanInspectorPage() {
       return;
     }
     setValidationError(null);
+    setActiveContractFilter(lookupContractId.trim());
   };
 
   const toggleXdrExpand = (id: string) => {
@@ -40,7 +42,7 @@ export default function SorobanInspectorPage() {
   };
 
   const copyXdr = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard?.writeText(text);
     setCopiedXdrId(id);
     setTimeout(() => setCopiedXdrId(null), 2000);
   };
@@ -51,11 +53,21 @@ export default function SorobanInspectorPage() {
       id: 'xdr_01',
       label: 'Contract Wasm Bytecode Hash (XDR)',
       xdr: 'AAAAEgAAAAAAAABAAAAAAACW+gAAAABAAAAIAAAAAG3vX9k4l1+Q0n5m2u8x9Z7y6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g',
+      decodedJson: {
+        scValType: 'ScvBytes',
+        wasmHashHex: '6def5fd938975f90d27e66daef1f59ef2eb0e6f3',
+        ledgerNetwork: 'Test SDF Network ; September 2015',
+      },
     },
     {
       id: 'xdr_02',
       label: 'Raw Instance Storage Entry (ScVal XDR)',
       xdr: 'AAAAEAAAAARzd2FwAAAAEAAAAAR0UkFEQVI1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTUAAAAEAAAAA=',
+      decodedJson: {
+        scValType: 'ScvMap',
+        topic: 'swap',
+        trader: 'GTRADER55555555555555555555555555555555555555555555555',
+      },
     },
   ];
 
@@ -165,7 +177,7 @@ export default function SorobanInspectorPage() {
         {/* Tab 1: Event & State Inspector View */}
         {activeTab === 'inspector' && (
           <div className="space-y-6">
-            <SorobanEventInspector initialContractFilter={lookupContractId} />
+            <SorobanEventInspector key={activeContractFilter} initialContractFilter={activeContractFilter} />
 
             {/* Long XDR Inspector Section with Truncation & Copy Controls */}
             <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-4" data-testid="long-xdr-inspector">
@@ -203,8 +215,16 @@ export default function SorobanInspectorPage() {
                         </div>
                       </div>
 
-                      <div className="font-mono text-xs text-slate-400 break-all bg-slate-900 p-2.5 rounded border border-slate-800/80">
-                        {isExpanded ? item.xdr : truncated}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="font-mono text-xs text-slate-400 break-all bg-slate-900 p-2.5 rounded border border-slate-800/80">
+                          {isExpanded ? item.xdr : truncated}
+                        </div>
+                        <pre
+                          data-testid={`decoded-json-${item.id}`}
+                          className="font-mono text-xs text-emerald-300 overflow-x-auto bg-slate-900 p-2.5 rounded border border-slate-800/80"
+                        >
+                          {JSON.stringify(item.decodedJson, null, 2)}
+                        </pre>
                       </div>
                     </div>
                   );
