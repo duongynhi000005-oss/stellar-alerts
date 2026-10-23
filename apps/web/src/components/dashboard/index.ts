@@ -14,3 +14,17 @@ export * from './WalletAlertActivationWizard';
 export * from './SankeyFlowDiagram';
 export * from './sankeyLayout';
 export * from './sankeySampleData';
+export * from './RuleBuilder';
+export {
+  RuleBuilderCanvas,
+  type VisualGroupNode,
+  type VisualConditionNode,
+  type VisualASTNode,
+  type SerializedGroupAST,
+  type SerializedConditionAST,
+  type LogicalOperator,
+  validateAST,
+  compileAST,
+  createDefaultGroup,
+  createDefaultCondition,
+} from './RuleBuilderCanvas';
