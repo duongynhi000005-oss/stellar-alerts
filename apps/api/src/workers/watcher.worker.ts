@@ -1,3 +1,4 @@
+import { GapHealer } from './watcher/gap-healer';
 import { isValidEd25519PublicKey } from '@stellar-alerts/shared';
 import { env } from '../config/env';
 import { prisma, connectWithRetry } from '../lib/prisma';
@@ -488,7 +489,24 @@ export async function saveCursor(
  * gap_detected status. Already-recorded payments within that window are
  * skipped via the same duplicate-protected insert path as normal ingestion.
  */
-async function recoverFromLedgerGap(wallet: { id: string; publicKey: string; userId?: string }) {
+export const gapHealer = new GapHealer({
+  fetchOperationsChunk: async (account, cursor, limit) => {
+    const recent = await stellar.getRecentPayments(account, limit);
+    return [...recent].reverse() as HorizonOperationRecord[];
+  },
+  isTransactionAlreadyIngested: async (txHash) => {
+    const existing = await prisma.payment.findUnique({ where: { txHash } });
+    return !!existing;
+  },
+  updatePersistedCursor: async (walletId, cursor) => {
+    await prisma.ingestionCursor.update({
+      where: { walletId },
+      data: { pagingToken: cursor, ...buildCursorGapClearedUpdate() },
+    });
+  },
+});
+
+export async function recoverFromLedgerGap(wallet: { id: string; publicKey: string; userId?: string }) {
   log.warn(
     { walletId: wallet.id, publicKey: wallet.publicKey.substring(0, 8), limit: BOUNDED_BACKFILL_LIMIT },
     '🩹 Running bounded backfill to recover from detected ledger gap',
