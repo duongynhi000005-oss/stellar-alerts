@@ -2,6 +2,7 @@ import { Job, Worker, Queue } from 'bullmq';
 import { redis, registerRedisCleanupTask } from '../lib/redis';
 import { createLogger } from '../lib/logger';
 import { RedisCircuitBreaker, CircuitBreakerOpenError } from '../modules/alerts/circuit-breaker';
+import { concurrencyGovernor } from './concurrency-governor';
 
 const log = createLogger({ module: 'WebhookDispatcherWorker' });
 
@@ -111,14 +112,20 @@ export class DispatcherWorker {
     }
   }
 
-  public start(queueName = 'webhook-dispatch', concurrency = 5) {
+  public start(queueName = 'webhook-dispatch', concurrency = 5, enableGovernor = false) {
     this.worker = new Worker<WebhookDispatchJobData>(
       queueName,
       async (job) => this.processJob(job),
       { connection: redis, concurrency }
     );
 
+    if (enableGovernor) {
+      concurrencyGovernor.setWorker(this.worker as any);
+      concurrencyGovernor.start();
+    }
+
     registerRedisCleanupTask(async () => {
+      if (enableGovernor) concurrencyGovernor.stop();
       if (this.worker) await this.worker.close();
     });
 
