@@ -5,18 +5,11 @@ import type { WalletDTO } from '@stellar-alerts/shared';
 import { isValidStellarPublicKey } from '@stellar-alerts/shared';
 import { getRawInitData, signalReady } from './telegram-client';
 import { parseTelegramAuthResponse, shortKey, type TmaAuthResult } from './tma.helpers';
-import AlertTriagePanel from './alert-triage';
+import TMADashboard, { type RecentPayment } from './tma-dashboard';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 type Phase = 'authenticating' | 'error' | 'ready';
-
-interface RecentPayment {
-  id: string;
-  amount: string;
-  asset: string;
-  receivedAt: string;
-}
 
 export default function TelegramMiniApp() {
   const [phase, setPhase] = useState<Phase>('authenticating');
@@ -214,131 +207,21 @@ export default function TelegramMiniApp() {
       )}
 
       {phase === 'ready' && session && (
-        <main className="flex flex-col gap-5">
-          <section
-            className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4 flex flex-col gap-3"
-            aria-labelledby="tma-push-feed-title"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 id="tma-push-feed-title" className="text-sm font-semibold">
-                  Recent payment pushes
-                </h2>
-                <p className="text-xs text-slate-400">Live alert preview from your watched wallets.</p>
-              </div>
-            </div>
-            {recentPayments.length === 0 ? (
-              <p className="text-xs text-slate-500">No recent payments yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {recentPayments.map((payment) => (
-                  <li
-                    key={payment.id}
-                    className="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2 flex items-center justify-between gap-2 text-xs"
-                  >
-                    <span className="font-mono text-emerald-300">
-                      +{payment.amount} {payment.asset}
-                    </span>
-                    <time className="text-slate-500" dateTime={payment.receivedAt}>
-                      {new Date(payment.receivedAt).toLocaleString()}
-                    </time>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {initData && <AlertTriagePanel apiBase={API_BASE} initData={initData} />}
-
-          <section className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">Telegram notifications</p>
-              <p className="text-xs text-slate-400">Ping this chat on every incoming payment.</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={telegramAlerts}
-              aria-label="Toggle Telegram notifications"
-              onClick={handleToggleTelegramAlerts}
-              className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
-                telegramAlerts ? 'bg-cyan-500' : 'bg-slate-700'
-              }`}
-            >
-              <span
-                className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${
-                  telegramAlerts ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-semibold text-slate-300">
-              Watched wallets ({wallets.length})
-            </h2>
-
-            {wallets.length === 0 ? (
-              <p className="text-xs text-slate-500 rounded-2xl bg-slate-900/50 border border-slate-800 p-4">
-                No wallets yet. Add a Stellar public key below to start receiving alerts.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {wallets.map((wallet) => (
-                  <li
-                    key={wallet.id}
-                    className="rounded-2xl bg-slate-900/70 border border-slate-800 p-3 flex items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {wallet.label || 'Stellar wallet'}
-                      </p>
-                      <p className="text-xs font-mono text-slate-400">{shortKey(wallet.publicKey)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveWallet(wallet.id)}
-                      disabled={busy}
-                      aria-label={`Remove wallet ${shortKey(wallet.publicKey)}`}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-300 border border-red-500/30 disabled:opacity-40"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <form onSubmit={handleAddWallet} className="flex flex-col gap-2">
-            <label htmlFor="tma-wallet-key" className="text-sm font-semibold text-slate-300">
-              Add a wallet
-            </label>
-            <input
-              id="tma-wallet-key"
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value)}
-              placeholder="G…"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
-            />
-            {formError && (
-              <p className="text-xs text-red-400" role="alert">
-                {formError}
-              </p>
-            )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold text-sm disabled:opacity-50"
-            >
-              {busy ? 'Working…' : 'Add wallet'}
-            </button>
-          </form>
-        </main>
-      )}
+        <TMADashboard
+          session={session}
+          wallets={wallets}
+          recentPayments={recentPayments}
+          initData={initData}
+          apiBase={API_BASE}
+          telegramAlerts={telegramAlerts}
+          onToggleTelegramAlerts={handleToggleTelegramAlerts}
+          onRemoveWallet={handleRemoveWallet}
+          onAddWallet={handleAddWallet}
+          newKey={newKey}
+          setNewKey={setNewKey}
+          formError={formError}
+          busy={busy}
+        />      )}
     </div>
   );
 }
