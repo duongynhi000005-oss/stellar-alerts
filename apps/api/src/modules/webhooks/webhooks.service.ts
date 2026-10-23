@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma';
 import { KeyRotationManager } from '../../utils/key-rotation-manager';
 import { cryptoVault } from '../../utils/crypto-vault';
 import { validateUrlForSsrf, ssrfSafeFetch } from '../../utils/ssrf';
+import { ed25519Signer, STELLAR_ED25519_SIGNATURE_HEADER } from './ed25519-signer';
 import {
   buildCursorWhere,
   buildCursorPage,
@@ -211,6 +212,39 @@ export class WebhooksService {
     return { success: true };
   }
 
+  buildDualSignatureHeaders(
+    webhook: { id: string; secret?: string; keyVersion?: number; secretIv?: string; secretAuthTag?: string; secretCiphertext?: string },
+    payload: string
+  ): { headers: Record<string, string>; nonce: string; timestamp: number } {
+    let secret = webhook.secret ?? '';
+    if (!secret && webhook.secretCiphertext && webhook.secretIv && webhook.secretAuthTag) {
+      try {
+        secret = cryptoVault.decryptParts({
+          keyVersion: webhook.keyVersion,
+          secretIv: webhook.secretIv,
+          secretAuthTag: webhook.secretAuthTag,
+          ciphertext: webhook.secretCiphertext,
+        });
+      } catch {
+        secret = 'fallback-secret';
+      }
+    }
+    if (!this.keyRotationManager.getKeyState(webhook.id)) {
+      this.keyRotationManager.setKeyState(webhook.id, { activeSecret: secret });
+    }
+    const signatures = this.keyRotationManager.sign(payload, webhook.id);
+    const ed25519Sig = ed25519Signer.sign(payload);
+    const headers: Record<string, string> = {
+      'X-Stellar-Signature': signatures.primary.headerValue,
+      'X-Stellar-Alerts-Nonce': signatures.primary.nonce,
+      [STELLAR_ED25519_SIGNATURE_HEADER]: ed25519Sig,
+    };
+    if (signatures.secondary) {
+      headers['X-Stellar-Signature-Secondary'] = signatures.secondary.headerValue;
+    }
+    return { headers, nonce: signatures.primary.nonce, timestamp: signatures.primary.timestamp };
+  }
+
   async sendTestWebhook(id: string, userId: string): Promise<WebhookTestResult> {
     const webhook = await prisma.webhook.findUnique({ where: { id } });
 
@@ -244,6 +278,7 @@ export class WebhooksService {
       'Content-Type': 'application/json',
       'X-Stellar-Signature': signatures.primary.headerValue,
       'X-Stellar-Alerts-Nonce': signatures.primary.nonce,
+      [STELLAR_ED25519_SIGNATURE_HEADER]: ed25519Signer.sign(payload),
     };
     if (signatures.secondary) {
       headers['X-Stellar-Signature-Secondary'] = signatures.secondary.headerValue;

@@ -33,6 +33,7 @@ import { openApiOptions } from './openapi.config';
 import { loggerOptions } from './lib/logger';
 import { env } from './config/env';
 import metricsPlugin from './plugins/metrics';
+import { ed25519Signer } from './modules/webhooks/ed25519-signer';
 
 import { checkRedisReadiness, getRedisStatus } from './lib/redis';
 import { dbFailover } from './lib/db-failover';
@@ -133,6 +134,11 @@ export const buildApp = async () => {
     const statusCode = allOk ? 200 : 503;
 
     return reply.code(statusCode).send({ status, checks });
+  });
+
+  // Issue #739: Public discovery endpoint for asymmetric Ed25519 webhook signature verification
+  app.get('/.well-known/stellar-alerts.json', async () => {
+    return ed25519Signer.getWellKnownMetadata();
   });
 
   app.register(authRoutes);
